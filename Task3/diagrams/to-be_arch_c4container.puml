@@ -1,0 +1,101 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title <b>C4 Container Diagram (TO-BE)</b>\nЦелевая облачная архитектура VitaStore
+
+Person(cashier, "Кассир", "Сотрудник магазина")
+Person(merchandiser, "Товаровед", "Верификация маппинга")
+
+
+System_Boundary(store, "Магазин (Store Edge)") {
+    Container(pos, "Web POS Client", "Тонкий клиент", "React / Vue.js / Android\nВеб-приложение на планшете")
+    Container(hal, "HAL Agent", "Go / C++", "Универсальный API для железа")
+    ContainerDb(localstore, "Local Event Store", "SQLite", "Офлайн-кэш\n(до 48 часов)")
+    Container_Ext(printer, "Fiscal Printer", "ККТ", "COM-port / USB")
+    Container_Ext(terminal, "Payment Terminal", "Ingenico / Verifone / Сбер", "USB / RS-232\nРазные протоколы")
+}
+
+' === Cloud ===
+System_Boundary(cloud, "VitaStore Cloud (Yandex / VK Cloud)") {
+    Container(apigw, "API Gateway", "NGINX / Kong", "Маршрутизация, Rate Limiting")
+    Container(backend, "Web POS Backend", "Spring Boot / Node.js", "Микросервисы\n(Касса, Заказы, Чеки)")
+    Container(payment, "Payment Gateway", "CloudPayments / Yandex.Kassa", "Облачный шлюз эквайринга")
+    Container(promo, "Promo Engine", "Микросервис", "Единый движок промоакций")
+    Container(loyalty, "Loyalty Service", "Микросервис", "Real-time лояльность")
+    ContainerDb(clouddb, "Managed PostgreSQL", "Cloud DB", "Центральная БД\n(Товары, Цены, Склады)")
+    Container(mdm, "MDM + AI Matching", "Master Data", "Справочник номенклатуры + ML-маппинг")
+    Container(config, "Config Service", "", "OTA-обновления для HAL")
+    Container(eventbus, "Event Bus", "Kafka / RabbitMQ", "Асинхронные события")
+    Container(monitoring, "Monitoring & Logging", "Prometheus + ELK", "Метрики, логи, алерты")
+}
+
+
+System_Boundary(hq, "Центральный офис (HQ)") {
+    Container(sap, "SAP ERP+HR Cloud", "as SaaS or IaaS", "Учёт товаров, HR, Финансы")
+    Container(servicedesk, "Service Desk", "Jira + AI", "Поддержка + автоматизация")
+}
+
+
+System_Ext(bank, "Банк-Эквайер", "Сбер / Тинькофф / Альфа")
+
+
+Rel(pos, hal, "Команды: printReceipt, processPayment", "Local API / WebSocket")
+Rel(hal, printer, "Управление", "Универсальный API")
+Rel(hal, terminal, "Управление через HAL", "Универсальный API")
+Rel(hal, localstore, "Запись офлайн-транзакций")
+Rel(localstore, hal, "Отправка при восстановлении")
+Rel(hal, apigw, "HTTPS + mTLS", "Отправка транзакций")
+
+
+Rel(cashier, pos, "Работает с кассой", "UI")
+Rel(pos, apigw, "HTTPS / WebSocket", "Real-time")
+Rel(apigw, backend, "REST / gRPC")
+Rel(backend, clouddb, "Чтение/запись")
+Rel(backend, promo, "Запрос промо")
+Rel(backend, loyalty, "Запрос баллов")
+
+Rel(payment, bank, "API эквайринга")
+Rel(backend, payment, "Запрос на оплату")
+Rel(config, hal, "OTA-обновления\n(драйверы, конфиги)", "Периодический pull")
+Rel(mdm, clouddb, "Синхронизация")
+Rel(clouddb, eventbus, "CDC (Change Data Capture)")
+Rel(eventbus, sap, "Интеграция")
+Rel(hal, monitoring, "Метрики, логи")
+Rel(backend, monitoring, "Метрики, логи")
+Rel(monitoring, servicedesk, "Алерты")
+
+
+Rel(merchandiser, mdm, "Верификация низкого confidence")
+Rel(sap, clouddb, "Синхронизация")
+
+
+note bottom of hal
+  <b>HAL (Hardware Abstraction Layer):</b>
+  - Edge-агент (Raspberry Pi / NUC)
+  - OTA-обновления драйверов
+  - Работает офлайн до 48 часов
+  - <b>Решение для INC-8415</b>
+end note
+
+note bottom of localstore
+  <b>Local Event Store:</b>
+  - SQLite + очередь событий
+  - Хранит чеки и транзакции
+  - Offline-режим с лояльностью
+  - <b>Решение для INC-8402</b>
+end note
+
+note top of payment
+  <b>Payment Gateway:</b>
+  • Единый API для всех терминалов
+  • Адаптация под протоколы:
+    - ARCUS-2 (Сбер)
+    - Ingenico
+    - Verifone
+  • Любой новый - через конфиг
+end note
+
+SHOW_LEGEND()
+@enduml
