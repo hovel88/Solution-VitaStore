@@ -1,0 +1,61 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+
+title <b>C4 Sequence Diagram</b>\nOffline-режим и синхронизация
+
+actor "Кассир" as Cashier
+participant "Web POS\nClient" as POS
+participant "HAL Agent" as HAL
+database "Local Event\nStore" as LocalDB
+participant "Cloud\nBackend" as Cloud
+participant "Loyalty\nService" as Loyalty
+
+== Offline-режим (Интернет отключён) ==
+
+Cashier -> POS : Пробивает товары
+POS -> HAL : processPayment(amount)
+HAL -> HAL : Проверка связи с облаком\nConnection lost
+
+HAL -> LocalDB : Сохранить транзакцию\nв очередь (JSON)
+HAL -> HAL : Работает с локальным\nкэшем цен и баллов
+
+Cashier -> POS : Применяет карту лояльности
+POS -> HAL : processLoyalty(cardId)
+HAL -> LocalDB : Локальный кэш баллов\n(списание с отложенным подтверждением)
+
+HAL -> HAL : Генерация чека\n(фискализация локально)
+
+note right of HAL
+  <b>Offline статус:</b>
+  - До 48 часов работы
+  - Лояльность работает
+  - Все транзакции в очереди
+  - Уникальные ID для
+    предотвращения дублей
+end note
+
+== Синхронизация (Интернет восстановлен) ==
+
+Cloud -> HAL : Connection restored
+HAL -> Cloud : mTLS Authentication
+HAL -> LocalDB : Чтение очереди событий
+LocalDB --> HAL : 150 транзакций
+
+loop Batch (100 транзакций)
+  HAL -> Cloud : Upload batch + idempotency keys
+  alt success
+    Cloud -> Cloud : Валидация на дубли
+    Cloud -> Loyalty : Сверка баллов лояльности
+    Loyalty --> Cloud : Подтверждение
+    Cloud --> HAL : 200 OK + обновлённые справочники
+
+    HAL -> HAL : Обновление локального кэша
+    HAL -> LocalDB : Очистка подтверждённых событий
+  else failure
+    Cloud -> Cloud : Если конфликт (цена изменилась)
+    Cloud -> Cloud : Last Write Wins + нотификация
+    Cloud --> "Service Desk" : Создать тикет на аудит
+  end
+end
+
+@enduml

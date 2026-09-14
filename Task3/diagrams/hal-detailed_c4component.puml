@@ -1,0 +1,79 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title <b>C4 Component Diagram</b>\nHAL (Hardware Abstraction Layer) — детальная архитектура
+
+Person(pos, "Web POS Client", "Отправляет команды")
+
+System_Boundary(hal_system, "HAL Agent (Edge Device)") {
+    Component(dm, "Device Manager", "", "Принимает команды от Web POS")
+    Component(pa, "Protocol Adapter", "", "Транслирует команды в протокол устройств")
+    Component(os, "Offline Storage", "", "Очередь команд (FIFO)\nХранит события при потере связи")
+    Component(ota, "Updater", "", "Обновляет драйверы и конфиги 'по воздуху'")
+    Component(hmon, "Health Monitor", "", "Следит за состоянием устройств")
+    ComponentDb(local_config, "Local Config", "Конфигурация драйверов")
+    ComponentDb(offline_db, "Offline Transaction Log", "Очередь событий")
+}
+
+System_Boundary(drivers, "Drivers") {
+    Component(driver_fiscal, "Driver: Fiscal Printer", "", "ККТ")
+    Component(driver_ingenico, "Driver: Ingenico", "", "Ingenico")
+    Component(driver_verifone, "Driver: Verifone", "", "Verifone")
+    Component(driver_sber, "Driver: Сбер ARCUS-2", "", "ARCUS-2")
+}
+
+System_Ext(printer, "Fiscal Printer", "ККТ")
+System_Ext(terminal, "Payment Terminal", "Ingenico / Verifone / Сбер")
+System_Ext(cloud_config, "Config Service", "Облако")
+System_Ext(cloud_mon, "Monitoring", "Облако")
+
+' === Связи ===
+Rel(pos, dm, "Высокоуровневые API-команды\nпечать чека\nпроверсти платеж\nи т.д.")
+Rel(dm, pa, "Преобразование команд")
+Rel(pa, driver_fiscal, "Fiscal Protocol")
+Rel(pa, driver_ingenico, "Ingenico Protocol")
+Rel(pa, driver_verifone, "Verifone Protocol")
+Rel(pa, driver_sber, "ARCUS-2 Protocol")
+
+Rel(dm, os, "При потере связи")
+Rel(os, offline_db, "Запись транзакций")
+Rel(offline_db, os, "Чтение при восстановлении")
+Rel(os, cloud_config, "Отправка транзакций", "После восстановления")
+
+Rel(driver_fiscal, printer, "COM/USB")
+Rel(driver_ingenico, terminal, "USB/RS-232")
+Rel(driver_verifone, terminal, "USB/RS-232")
+Rel(driver_sber, terminal, "USB/RS-232")
+
+Rel(cloud_config, ota, "Периодический pull")
+Rel(ota, local_config, "Обновление конфигов")
+Rel(ota, driver_ingenico, "Обновление драйвера")
+Rel(ota, driver_verifone, "Обновление драйвера")
+Rel(ota, driver_sber, "Обновление драйвера")
+Rel(ota, driver_fiscal, "Обновление драйвера")
+
+Rel(hmon, cloud_mon, "Health checks")
+Rel(hmon, dm, "Статус устройств")
+
+
+note right of pa
+  <b>Protocol Adapter:</b>
+  Универсальный API для Web POS
+  Трансляция команд в специфичные
+  протоколы устройств
+end note
+
+note left of ota
+  <b>Обновления:</b>
+  Новый драйвер загружается
+  из Config Service
+  Обновления и установка нужных
+  драйверов по воздуху
+  за несколько часов
+  <b>(решение INC-8415)</b>
+end note
+
+SHOW_LEGEND()
+@enduml

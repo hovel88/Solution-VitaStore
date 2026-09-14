@@ -1,0 +1,65 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title <b>C4 Container Diagram (AS-IS)</b>\nАрхитектура VitaStore (реальная)
+
+
+Person(cashier, "Кассир", "Сотрудник магазина")
+Person(engineer, "ИТ-инженер", "Выездной сотрудник")
+Person(merchandiser, "Товаровед", "Отдел Data Integration (HQ)")
+
+
+System_Boundary(store, "Магазин (Store Edge)") {
+    Container(pos, "POS App", "Толстый клиент", "Монолитное приложение")
+    ContainerDb(localdb, "Local DB", "MS SQL Express / PostgreSQL", "Windows Server\nНа сервере в подсобке")
+    Container_Ext(printer, "Fiscal Printer", "ККТ", "COM-port / USB")
+    Container_Ext(terminal, "Payment Terminal", "Ingenico / Verifone / Сбер", "USB / RS-232\nРазные протоколы")
+}
+
+
+System_Boundary(hq, "Центральный офис (HQ)") {
+    Container(sap, "SAP ERP", "On-premise", "Учёт товаров, цены, лояльность")
+    Container(ftp, "FTP Server", "", "Ночная рассылка XML")
+}
+
+
+Rel(cashier, pos, "Работает с кассой", "UI")
+Rel(pos, localdb, "Читает/пишет", "Synchronous")
+Rel(pos, printer, "Прямое управление", "COM-port driver")
+Rel(pos, terminal, "Прямое управление", "USB driver")
+Rel(pos, sap, "<color:red>НЕТ real-time REST</color>\n<color:red>(только ночной обмен)</color>")
+
+Rel(sap, ftp, "Ночная рассылка\nфайлом XML")
+Rel(ftp, localdb, "Рассылка прайсов")
+Rel(localdb, pos, "Читает цены")
+
+Rel(engineer, merchandiser, "Отправляет CSV по email")
+Rel(merchandiser, sap, "Загружает после ручного маппинга")
+
+
+note right of terminal
+  <b>Проблемы (INC-8415):</b>
+  - Для каждого терминала нужен свой драйвер
+  - 3 недели на разработку нового
+  - Блокирует открытие магазина
+end note
+
+note top of pos
+  <b>Проблемы (INC-8402):</b>
+  - Offline без лояльности
+  - Толстый клиент (обновления сложные)
+  - Привязан к конкретному железу
+end note
+
+note bottom of localdb
+  <b>Проблемы (INC-8433):</b>
+  - Жёсткие диски умирают
+  - 500+ серверов в подсобках
+  - Windows + SQL лицензии
+  - ETA 4-6 часов
+end note
+
+SHOW_LEGEND()
+@enduml
